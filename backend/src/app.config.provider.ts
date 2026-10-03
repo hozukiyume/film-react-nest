@@ -1,39 +1,41 @@
-import { ConfigService } from '@nestjs/config';
 import { Provider } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 import { FILMS_REPOSITORY } from './repository/films.repository';
-import { FilmsRepository } from './repository/films.repository';
-import { FilmsMongoRepository } from './repository/mongo.repository';
-import { FilmsMemoryRepository } from './repository/memory.repository';
+import { FilmsPostgresRepository } from './repository/postgres.repository';
+import { Film as FilmEntity } from './repository/entities/film.entity';
+import { Schedule as ScheduleEntity } from './repository/entities/schedule.entity';
 
-// Интерфейс конфигурации базы данных, описывает структуру настроек для подключения к БД
-export interface AppConfigDatabase {
-  driver: string;
-  url: string;
-}
+// Фабрика конфигурации TypeORM, возвращает объект с настройками подключения к PostgreSQL, прочитанными из переменных окружения через ConfigService
+export const typeOrmConfigFactory = (
+  configService: ConfigService,
+): TypeOrmModuleOptions => {
+  // Чтение драйвера базы данных из .env
+  const driver = configService.get<string>('DATABASE_DRIVER');
+  if (driver !== 'postgres') {
+    throw new Error(`Unsupported database driver: ${driver}`);
+  }
 
-// Общий интерфейс конфигурации приложения, содержит все настройки приложения
-export interface AppConfig {
-  port: number;
-  database: AppConfigDatabase;
-}
+  // Получение host, port и database из строки подключения через стандартный URL
+  const databaseUrl = new URL(
+    configService.get<string>('DATABASE_URL'),
+  );
 
-// Провайдер для выбора реализации FilmsRepository, определяет какой репозиторий использовать на основе переменной окружения DATABASE_DRIVER
+  return {
+    type: driver, // 'postgres'
+    host: databaseUrl.hostname, // из DATABASE_URL, ('localhost')
+    port: Number(databaseUrl.port) || 5432, // из DATABASE_URL, по умолчанию 5432
+    database: databaseUrl.pathname.slice(1), // имя БД без ведущего слэша ('exampledb')
+    username: configService.getOrThrow<string>('DATABASE_USERNAME'), // из .env
+    password: configService.getOrThrow<string>('DATABASE_PASSWORD'), // из .env
+    entities: [FilmEntity, ScheduleEntity], // список сущностей, по которым строятся метаданные таблиц и связей
+    synchronize: false, // отключение автоматического изменения схемы БД по сущностям
+  };
+};
+
+// Провайдер, связывающий токен FILMS_REPOSITORY с конкретной реализацией
 export const configProvider: Provider = {
-  // Токен, по которому можно внедрить результат работы фабрики, используется в @Inject(FILMS_REPOSITORY)
-  provide: FILMS_REPOSITORY,
-  // Зависимости, которые внедряются в useFactory
-  inject: [ConfigService, FilmsMongoRepository, FilmsMemoryRepository],
-  // Фабричная функция, возвращающая нужную реализацию репозитория
-  useFactory: (
-    configService: ConfigService, // Для чтения переменных окружения
-    mongoRepository: FilmsMongoRepository,
-    memoryRepository: FilmsMemoryRepository,
-  ): FilmsRepository => {
-    // Чтение переменной DATABASE_DRIVER из .env
-    const driver = configService.get<string>('DATABASE_DRIVER');
-
-    // Возвращается соответствующая реализация
-    return driver === 'mongodb' ? mongoRepository : memoryRepository;
-  },
+  provide: FILMS_REPOSITORY, // сервисы зависят от интерфейса FilmsRepository через @Inject(FILMS_REPOSITORY), а не от класса напрямую
+  useExisting: FilmsPostgresRepository, // переиспользуется единственный экземпляр FilmsPostgresRepository вместо создания нового
 };

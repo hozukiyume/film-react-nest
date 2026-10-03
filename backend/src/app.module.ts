@@ -3,19 +3,18 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as path from 'node:path';
 
-import { configProvider } from './app.config.provider';
-import { MongooseModule } from '@nestjs/mongoose';
+import { configProvider, typeOrmConfigFactory } from './app.config.provider';
 
 import { FilmsController } from './films/films.controller';
 import { FilmsService } from './films/films.service';
 
-import { Film, FilmSchema } from './repository/schema';
-
-import { FilmsMongoRepository } from './repository/mongo.repository';
-import { FilmsMemoryRepository } from './repository/memory.repository';
-
 import { OrderController } from './order/order.controller';
 import { OrderService } from './order/order.service';
+
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Film as FilmEntity } from './repository/entities/film.entity';
+import { Schedule as ScheduleEntity } from './repository/entities/schedule.entity';
+import { FilmsPostgresRepository } from './repository/postgres.repository';
 
 // Корневой модуль приложения, объединяет все модули, контроллеры и провайдеры
 @Module({
@@ -33,22 +32,14 @@ import { OrderService } from './order/order.service';
       serveRoot: '/content/afisha', // URL-префикс для доступа к файлам
     }),
 
-    // Асинхронное подключение к MongoDB
-    MongooseModule.forRootAsync({
-      inject: [ConfigService], // Внедрение ConfigService для доступа к переменным
-      // Фабрика, возвращающая конфигурацию подключения
-      useFactory: (configService: ConfigService) => ({
-        uri: configService.get<string>('DATABASE_URL'),
-      }),
+    // Асинхронная конфигурация TypeORM на основе переменных окружения
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: typeOrmConfigFactory,
     }),
 
-    // Регистрация Mongoose схем - создает модель Film на основе схемы FilmSchema, модель доступна для внедрения через @InjectModel(Film.name)
-    MongooseModule.forFeature([
-      {
-        name: Film.name,
-        schema: FilmSchema,
-      },
-    ]),
+    // Регистрация репозиториев для указанных сущностей в контексте текущего модуля
+    TypeOrmModule.forFeature([FilmEntity, ScheduleEntity]),
   ],
   // HTTP-контроллеры для обработки HTTP-запросов
   controllers: [FilmsController, OrderController],
@@ -57,10 +48,9 @@ import { OrderService } from './order/order.service';
     // Сервисы
     FilmsService,
     OrderService,
-    // Реализации репозиториев
-    FilmsMongoRepository,
-    FilmsMemoryRepository,
-    // Провайдер выбора репозитория на основе переменной окружения DATABASE_DRIVER
+    // Реализация репозитория фильмов для PostgreSQL, внедряет Repository<Film> и Repository<Schedule> через @InjectRepository
+    FilmsPostgresRepository,
+    // Провайдер, связывающий токен FILMS_REPOSITORY с реализацией FilmsPostgresRepository через useExisting
     configProvider,
   ],
 })

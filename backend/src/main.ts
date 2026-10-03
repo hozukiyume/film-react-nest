@@ -1,6 +1,5 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import 'dotenv/config'; // Загружает переменные окружения из .env файла
 
 // Точка входа - функция bootstrap инициализирует и запускает NestJS приложение
 async function bootstrap() {
