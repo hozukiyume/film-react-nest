@@ -17,16 +17,11 @@ export const typeOrmConfigFactory = (
     throw new Error(`Unsupported database driver: ${driver}`);
   }
 
-  // Получение host, port и database из строки подключения через стандартный URL
-  const databaseUrl = new URL(
-    configService.get<string>('DATABASE_URL'),
-  );
-
   return {
     type: driver, // 'postgres'
-    host: databaseUrl.hostname, // из DATABASE_URL, ('localhost')
-    port: Number(databaseUrl.port) || 5432, // из DATABASE_URL, по умолчанию 5432
-    database: databaseUrl.pathname.slice(1), // имя БД без ведущего слэша ('exampledb')
+    host: configService.getOrThrow<string>('DATABASE_HOST'), // из .env ('localhost')
+    port: configService.get<number>('DATABASE_PORT') || 5432, // из .env, по умолчанию 5432
+    database: configService.getOrThrow<string>('DATABASE_NAME'), // имя базы данных из .env ('exampledb')
     username: configService.getOrThrow<string>('DATABASE_USERNAME'), // из .env
     password: configService.getOrThrow<string>('DATABASE_PASSWORD'), // из .env
     entities: [FilmEntity, ScheduleEntity], // список сущностей, по которым строятся метаданные таблиц и связей
