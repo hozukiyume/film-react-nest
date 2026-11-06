@@ -25,7 +25,7 @@ export const typeOrmConfigFactory = (
     username: configService.getOrThrow<string>('DATABASE_USERNAME'), // из .env
     password: configService.getOrThrow<string>('DATABASE_PASSWORD'), // из .env
     entities: [FilmEntity, ScheduleEntity], // список сущностей, по которым строятся метаданные таблиц и связей
-    synchronize: false, // отключение автоматического изменения схемы БД по сущностям
+    synchronize: configService.get<string>('NODE_ENV') !== 'production',
   };
 };
 

@@ -1,0 +1,93 @@
+# Docker Compose для локальной сборки и запуска всего стека
+# Пять контейнеров в одной сети film-network
+services:
+  # Фронтенд: build-контейнер - собирает статику dist в volume
+  frontend:
+    build:
+      context: ./frontend # Dockerfile в ./frontend
+    image: ghcr.io/hozukiyume/film-frontend:latest # ('ghcr.io/${OWNER}/sp16_frontend:latest') пуш в GitHub Actions
+    restart: 'no' # контейнер завершается после копирования dist без перезапуска
+    volumes:
+      - frontend_dist:/app/dist # сюда frontend/Dockerfile копирует dist, а потом его читает nginx
+    networks:
+      - film-network
+
+  # Бэкенд: NestJS API
+  backend:
+    build:
+      context: ./backend # Dockerfile в ./backend
+    image: ghcr.io/hozukiyume/film-backend:latest
+    restart: unless-stopped # перезапуск при падении, но не после docker compose stop
+    depends_on:
+      database:
+        condition: service_healthy # ожидание проверки Postgres (pg_isready)
+    env_file:
+      - .env.docker # переменные внутри контейнера
+    networks:
+      - film-network
+
+  # База данных: PostgreSQL
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # данные БД сохраняются между перезапусками
+      # SQL-скрипты выполняются автоматически при первом старте в порядке по имени файла (:ro - только чтение файлов)
+      - ./backend/test/prac.init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./backend/test/prac.films.sql:/docker-entrypoint-initdb.d/02-films.sql:ro
+      - ./backend/test/prac.shedules.sql:/docker-entrypoint-initdb.d/03-shedules.sql:ro
+    healthcheck:
+      # pg_isready проверяет, что Postgres принимает подключения от POSTGRES_USER в POSTGRES_DB
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - film-network
+
+  # pgAdmin: веб-интерфейс для PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    ports:
+      - '8080:80' # порт 80 внутри контейнера
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin # настройки и подключения pgAdmin сохраняются
+    networks:
+      - film-network
+
+  # nginx: точка входа - статика и проксирование
+  nginx:
+    build:
+      context: ./nginx
+    image: ghcr.io/hozukiyume/film-nginx:latest
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_completed_successfully # ожидание сборки dist и завершения
+      backend:
+        condition: service_started # ожидание запуска
+    ports:
+      - '80:80' # единственный сервис, доступный снаружи на :80
+    volumes:
+      - frontend_dist:/usr/share/nginx/html:ro # чтение статики, собранной фронтендом
+    networks:
+      - film-network
+
+# Volumes: именованные хранилища, переживают перезапуск контейнеров
+volumes:
+  frontend_dist:
+  postgres_data:
+  pgadmin_data:
+
+# Networks: общая сеть, в которой контейнеры видят друг друга по именам
+networks:
+  film-network:
+    driver: bridge # стандартный bridge - DNS по именам сервисов

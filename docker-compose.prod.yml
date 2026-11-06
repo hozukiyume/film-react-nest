@@ -1,0 +1,77 @@
+# Docker Compose для сервера
+services:
+  frontend:
+    image: ghcr.io/hozukiyume/film-frontend:latest # context вместо build: на сервере нет исходников - образы тянутся из ghcr.io
+    restart: 'no'
+    volumes:
+      - frontend_dist:/app/dist
+    networks:
+      - film-network
+
+  backend:
+    image: ghcr.io/hozukiyume/film-backend:latest
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    networks:
+      - film-network
+
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/test/prac.init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./backend/test/prac.films.sql:/docker-entrypoint-initdb.d/02-films.sql:ro
+      - ./backend/test/prac.shedules.sql:/docker-entrypoint-initdb.d/03-shedules.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 20 # на сервере БД стартует дольше
+    networks:
+      - film-network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    ports:
+      - '127.0.0.1:8080:80' # pgadmin слушает только localhost (127.0.0.1) - доступ через SSH-туннель
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - film-network
+
+  nginx:
+    image: ghcr.io/hozukiyume/film-nginx:latest
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_completed_successfully
+      backend:
+        condition: service_started
+    ports:
+      - '80:80'
+    volumes:
+      - frontend_dist:/usr/share/nginx/html:ro
+    networks:
+      - film-network
+
+volumes:
+  frontend_dist:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  film-network:
+    driver: bridge
