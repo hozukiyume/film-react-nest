@@ -23,6 +23,8 @@ services:
         condition: service_healthy # ожидание проверки Postgres (pg_isready)
     env_file:
       - .env.docker # переменные внутри контейнера
+    ports:
+      - '3000:3000'
     networks:
       - film-network
 
